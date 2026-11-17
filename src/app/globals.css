@@ -1,0 +1,327 @@
+@import "tailwindcss";
+
+/* Dark mode is a class on <html>, set before first paint by the inline script in the root layout. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * PulseOps design tokens.
+ *
+ * Components never use raw colours. They use semantic tokens (surface, text,
+ * border, brand, status, chart) which resolve per theme below. Colours are
+ * authored in OKLCH on a single navy hue (268°) so that every neutral step is
+ * perceptually even; contrast ratios for each text/surface pair are recorded
+ * in docs/design-system.md.
+ */
+:root,
+.light {
+  color-scheme: light;
+
+  /* Surfaces: page < raised < overlay */
+  --bg: oklch(0.982 0.004 268);
+  --surface: #ffffff;
+  --surface-2: oklch(0.968 0.006 268);
+  --surface-3: oklch(0.945 0.009 268);
+  --overlay: #ffffff;
+
+  /* Lines */
+  --border: oklch(0.915 0.009 268);
+  --border-strong: oklch(0.84 0.014 268);
+
+  /* Text */
+  --text: oklch(0.21 0.03 268);
+  --text-2: oklch(0.4 0.03 268);
+  --muted: oklch(0.53 0.026 268);
+  --faint: oklch(0.66 0.02 268);
+
+  /* Brand: indigo, with violet reserved for gradients and accents */
+  --brand: oklch(0.5 0.22 278);
+  --brand-hover: oklch(0.45 0.22 278);
+  --brand-fg: #ffffff;
+  --brand-text: oklch(0.46 0.21 278);
+  --brand-soft: oklch(0.5 0.22 278 / 0.09);
+  --brand-ring: oklch(0.5 0.22 278 / 0.35);
+  --violet: oklch(0.55 0.23 300);
+
+  /* Status. `-fg` is for text on a surface, the base colour is for marks and dots. */
+  --ok: oklch(0.6 0.16 157);
+  --ok-fg: oklch(0.45 0.13 157);
+  --ok-soft: oklch(0.6 0.16 157 / 0.12);
+  --warn: oklch(0.72 0.16 70);
+  --warn-fg: oklch(0.5 0.13 65);
+  --warn-soft: oklch(0.72 0.16 70 / 0.16);
+  --danger: oklch(0.58 0.22 22);
+  --danger-fg: oklch(0.5 0.2 22);
+  --danger-soft: oklch(0.58 0.22 22 / 0.1);
+  --info: oklch(0.58 0.14 240);
+  --info-fg: oklch(0.47 0.14 240);
+  --info-soft: oklch(0.58 0.14 240 / 0.1);
+  --neutral: oklch(0.6 0.02 268);
+  --neutral-soft: oklch(0.6 0.02 268 / 0.12);
+
+  /* Charts. Categorical order is fixed and validated for colour-vision deficiency (see docs). */
+  --chart-1: #6250d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-6: #008300;
+  --chart-7: #2a78d6;
+  --chart-8: #e34948;
+  --chart-grid: oklch(0.925 0.008 268);
+  --chart-axis: oklch(0.84 0.014 268);
+  --chart-muted: oklch(0.78 0.012 268);
+  /* Sequential ramp (one hue), lightest = least */
+  --seq-0: oklch(0.955 0.012 280);
+  --seq-1: oklch(0.88 0.05 280);
+  --seq-2: oklch(0.78 0.1 280);
+  --seq-3: oklch(0.66 0.16 280);
+  --seq-4: oklch(0.54 0.21 280);
+  --seq-5: oklch(0.42 0.2 280);
+
+  --shadow-sm: 0 1px 2px oklch(0.21 0.03 268 / 0.06);
+  --shadow-md: 0 4px 16px -4px oklch(0.21 0.03 268 / 0.1), 0 1px 2px oklch(0.21 0.03 268 / 0.06);
+  --shadow-lg: 0 18px 48px -12px oklch(0.21 0.03 268 / 0.2), 0 2px 6px oklch(0.21 0.03 268 / 0.06);
+  --highlight: inset 0 1px 0 oklch(1 0 0 / 0.6);
+}
+
+.dark {
+  color-scheme: dark;
+
+  --bg: oklch(0.155 0.024 268);
+  --surface: oklch(0.195 0.026 268);
+  --surface-2: oklch(0.228 0.028 268);
+  --surface-3: oklch(0.262 0.03 268);
+  --overlay: oklch(0.225 0.029 268);
+
+  --border: oklch(0.285 0.028 268);
+  --border-strong: oklch(0.38 0.03 268);
+
+  --text: oklch(0.955 0.008 268);
+  --text-2: oklch(0.79 0.018 268);
+  --muted: oklch(0.64 0.022 268);
+  --faint: oklch(0.5 0.022 268);
+
+  --brand: oklch(0.56 0.21 278);
+  --brand-hover: oklch(0.61 0.2 278);
+  --brand-fg: #ffffff;
+  --brand-text: oklch(0.77 0.13 280);
+  --brand-soft: oklch(0.56 0.21 278 / 0.16);
+  --brand-ring: oklch(0.66 0.19 278 / 0.5);
+  --violet: oklch(0.64 0.2 300);
+
+  --ok: oklch(0.74 0.17 157);
+  --ok-fg: oklch(0.78 0.16 157);
+  --ok-soft: oklch(0.74 0.17 157 / 0.13);
+  --warn: oklch(0.81 0.155 78);
+  --warn-fg: oklch(0.83 0.15 78);
+  --warn-soft: oklch(0.81 0.155 78 / 0.13);
+  --danger: oklch(0.66 0.21 20);
+  --danger-fg: oklch(0.74 0.17 20);
+  --danger-soft: oklch(0.66 0.21 20 / 0.14);
+  --info: oklch(0.74 0.12 235);
+  --info-fg: oklch(0.78 0.11 235);
+  --info-soft: oklch(0.74 0.12 235 / 0.13);
+  --neutral: oklch(0.62 0.025 268);
+  --neutral-soft: oklch(0.62 0.025 268 / 0.16);
+
+  --chart-1: #9085e9;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #3987e5;
+  --chart-8: #e66767;
+  --chart-grid: oklch(0.255 0.027 268);
+  --chart-axis: oklch(0.33 0.03 268);
+  --chart-muted: oklch(0.4 0.03 268);
+  /* In dark mode the ramp runs dim → bright, so "more" still stands out from the surface. */
+  --seq-0: oklch(0.25 0.03 280);
+  --seq-1: oklch(0.33 0.08 280);
+  --seq-2: oklch(0.42 0.13 280);
+  --seq-3: oklch(0.52 0.18 280);
+  --seq-4: oklch(0.64 0.19 280);
+  --seq-5: oklch(0.78 0.14 280);
+
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.3);
+  --shadow-md: 0 6px 20px -6px oklch(0 0 0 / 0.5), 0 1px 2px oklch(0 0 0 / 0.3);
+  --shadow-lg: 0 24px 60px -16px oklch(0 0 0 / 0.65), 0 2px 8px oklch(0 0 0 / 0.35);
+  --highlight: inset 0 1px 0 oklch(1 0 0 / 0.05);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-overlay: var(--overlay);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-fg: var(--brand-fg);
+  --color-brand-text: var(--brand-text);
+  --color-brand-soft: var(--brand-soft);
+  --color-violet: var(--violet);
+  --color-ok: var(--ok);
+  --color-ok-fg: var(--ok-fg);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-fg: var(--warn-fg);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-fg: var(--info-fg);
+  --color-info-soft: var(--info-soft);
+  --color-neutral: var(--neutral);
+  --color-neutral-soft: var(--neutral-soft);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-instrument), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* Type scale: dense product UI. 13px is the workhorse size. */
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.375rem;
+  --text-md: 1rem;
+  --text-md--line-height: 1.5rem;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+
+  /* Motion: three durations, one curve. */
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --animate-fade-in: fade-in 160ms var(--ease-out);
+  --animate-pop-in: pop-in 160ms var(--ease-out);
+  --animate-slide-up: slide-up 220ms var(--ease-out);
+  --animate-slide-in-left: slide-in-left 240ms var(--ease-out);
+  --animate-slide-in-right: slide-in-right 240ms var(--ease-out);
+  --animate-pulse-ring: pulse-ring 2.4s cubic-bezier(0.2, 0, 0, 1) infinite;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes pop-in {
+    from { opacity: 0; transform: scale(0.97) translateY(2px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slide-in-left {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+  }
+  @keyframes slide-in-right {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+  }
+  @keyframes pulse-ring {
+    0% { transform: scale(1); opacity: 0.55; }
+    70%, 100% { transform: scale(2.6); opacity: 0; }
+  }
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.375rem;
+    font-feature-settings: "cv11", "ss03", "calt";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: -0.015em;
+  }
+  /* One focus treatment everywhere, visible on every surface, keyboard only. */
+  :focus-visible {
+    outline: 2px solid var(--brand-ring);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+  ::selection {
+    background: var(--brand-soft);
+  }
+  button:not(:disabled), [role="button"]:not([aria-disabled="true"]), summary {
+    cursor: pointer;
+  }
+  /* Thin, theme-aware scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+@utility skeleton {
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+@utility surface-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--highlight), var(--shadow-sm);
+}
+/* Restrained brand gradient: used for the wordmark and one hero accent, nowhere else. */
+@utility text-gradient {
+  background: linear-gradient(100deg, var(--brand-text), var(--violet));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@utility grid-fade {
+  background-image: linear-gradient(to right, var(--border) 1px, transparent 1px), linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 0%, black 30%, transparent 75%);
+}
+
+/* Motion is decoration. Anyone who asks for less gets none of it. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,672 @@
+// PulseOps data model.
+//
+// Conventions
+//   - Primary keys are UUIDv7 (time-ordered, index-friendly, safe to expose).
+//   - Every tenant-owned table carries `organizationId`, even where it could be
+//     derived through a join. Tenant isolation is enforced by filtering on that
+//     column in the data-access layer, so it must be present and indexed.
+//   - Timestamps are `timestamptz`. All bucketing in SQL is done in UTC.
+//   - High-volume tables (MonitorCheck) are append-only and pruned by retention.
+//
+// See docs/database.md for the reasoning behind each decision.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum MonitorKind {
+  WEBSITE
+  API
+}
+
+enum HttpMethod {
+  GET
+  HEAD
+  POST
+  OPTIONS
+}
+
+enum MonitorStatus {
+  PENDING
+  UP
+  DEGRADED
+  DOWN
+  PAUSED
+}
+
+enum CheckStatus {
+  UP
+  DEGRADED
+  DOWN
+}
+
+enum CheckErrorType {
+  TIMEOUT
+  DNS
+  TLS
+  CONNECTION
+  HTTP_STATUS
+  REDIRECT
+  BLOCKED
+  UNKNOWN
+}
+
+/// Where a record came from. Seeded demo history is never passed off as a
+/// real measurement: every fabricated row is tagged SEED.
+enum DataOrigin {
+  LIVE
+  SEED
+  MIXED
+}
+
+enum IncidentStatus {
+  INVESTIGATING
+  IDENTIFIED
+  MONITORING
+  RESOLVED
+}
+
+enum IncidentSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum IncidentSource {
+  MANUAL
+  AUTOMATED
+}
+
+enum IncidentUpdateKind {
+  /// Written by a person. May be published to status pages.
+  UPDATE
+  /// Written by the platform (opened, recovered, auto-resolved). Never public.
+  SYSTEM
+}
+
+enum NotificationChannelType {
+  EMAIL
+  WEBHOOK
+}
+
+enum NotificationEvent {
+  INCIDENT_CREATED
+  INCIDENT_RESOLVED
+  MONITOR_DOWN
+  MONITOR_RECOVERED
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+  /// No provider configured for this channel type; recorded, not sent.
+  SKIPPED
+  /// Dropped by the per-destination rate limit.
+  SUPPRESSED
+}
+
+enum ActivityType {
+  MONITOR_CREATED
+  MONITOR_PAUSED
+  MONITOR_RESUMED
+  MONITOR_DOWN
+  MONITOR_DEGRADED
+  MONITOR_RECOVERED
+  INCIDENT_OPENED
+  INCIDENT_UPDATED
+  INCIDENT_RESOLVED
+  INCIDENT_REOPENED
+}
+
+enum ActivityLevel {
+  INFO
+  SUCCESS
+  WARNING
+  CRITICAL
+}
+
+enum AuditActorType {
+  USER
+  SYSTEM
+}
+
+enum StatusPageTheme {
+  AUTO
+  DARK
+  LIGHT
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Identity
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  /// Always stored lower-cased; uniqueness is therefore case-insensitive.
+  email        String    @unique
+  name         String
+  /// argon2id PHC string. Never selected by default DTO mappers.
+  passwordHash String
+  lastLoginAt  DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+
+  sessions          Session[]
+  memberships       OrganizationMember[]
+  invitationsSent   Invitation[]
+  monitorsCreated   Monitor[]
+  incidentsCreated  Incident[]            @relation("IncidentCreator")
+  incidentsAssigned Incident[]            @relation("IncidentAssignee")
+  incidentUpdates   IncidentUpdate[]
+  incidentNotes     IncidentNote[]
+  analyses          IncidentAnalysis[]
+  channelsCreated   NotificationChannel[]
+  deliveries        NotificationDelivery[]
+  auditLogs         AuditLog[]
+}
+
+model Session {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  /// SHA-256 of the opaque cookie token. The raw token is never persisted,
+  /// so a database leak does not yield usable sessions.
+  tokenHash  String   @unique
+  userId     String   @db.Uuid
+  expiresAt  DateTime @db.Timestamptz(3)
+  lastUsedAt DateTime @default(now()) @db.Timestamptz(3)
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tenancy
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Organization {
+  id                   String   @id @default(uuid(7)) @db.Uuid
+  name                 String
+  /// Immutable after creation: it is part of every URL and API path.
+  slug                 String   @unique
+  /// Marks the seeded demo workspace so the UI can label sample data.
+  isDemo               Boolean  @default(false)
+  /// Resolve automated incidents once every linked monitor has recovered.
+  autoResolveIncidents Boolean  @default(true)
+  /// Monotonic per-organization counter backing human-friendly INC-n numbers.
+  incidentCounter      Int      @default(0)
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @db.Timestamptz(3)
+
+  members        OrganizationMember[]
+  invitations    Invitation[]
+  monitors       Monitor[]
+  checks         MonitorCheck[]
+  aggregates     MonitorDailyAggregate[]
+  incidents      Incident[]
+  incidentLinks  IncidentMonitor[]
+  updates        IncidentUpdate[]
+  notes          IncidentNote[]
+  analyses       IncidentAnalysis[]
+  channels       NotificationChannel[]
+  deliveries     NotificationDelivery[]
+  statusPages    StatusPage[]
+  auditLogs      AuditLog[]
+  activityEvents ActivityEvent[]
+}
+
+model OrganizationMember {
+  id             String  @id @default(uuid(7)) @db.Uuid
+  organizationId String  @db.Uuid
+  userId         String  @db.Uuid
+  role           OrgRole @default(MEMBER)
+
+  // Personal email preferences, scoped to this organization.
+  notifyIncidentCreated  Boolean @default(true)
+  notifyIncidentResolved Boolean @default(true)
+  notifyMonitorDown      Boolean @default(true)
+  notifyMonitorRecovered Boolean @default(false)
+
+  /// Read marker for the in-app activity inbox.
+  activitySeenAt DateTime? @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+model Invitation {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  organizationId String    @db.Uuid
+  email          String
+  role           OrgRole   @default(MEMBER)
+  /// SHA-256 of the invite token; the raw token only ever appears in the link.
+  tokenHash      String    @unique
+  invitedById    String?   @db.Uuid
+  expiresAt      DateTime  @db.Timestamptz(3)
+  acceptedAt     DateTime? @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User?        @relation(fields: [invitedById], references: [id], onDelete: SetNull)
+
+  /// One live invitation per address; re-inviting rotates the token.
+  @@unique([organizationId, email])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Monitoring
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Monitor {
+  id             String      @id @default(uuid(7)) @db.Uuid
+  organizationId String      @db.Uuid
+  name           String
+  url            String
+  kind           MonitorKind @default(WEBSITE)
+  method         HttpMethod  @default(GET)
+  category       String?
+
+  // Check configuration
+  intervalSeconds     Int     @default(60)
+  timeoutMs           Int     @default(10000)
+  /// Comma-separated codes and ranges, e.g. "200-299,301". Validated on write.
+  expectedStatusCodes String  @default("200-299")
+  followRedirects     Boolean @default(true)
+  /// Immediate re-tries inside one check before it is recorded as a failure.
+  retries             Int     @default(1)
+  /// Responses slower than this are recorded as DEGRADED. Null disables it.
+  degradedThresholdMs Int?
+
+  // Outage policy
+  failureThreshold  Int              @default(3)
+  recoveryThreshold Int              @default(2)
+  autoIncident      Boolean          @default(true)
+  incidentSeverity  IncidentSeverity @default(HIGH)
+
+  // Runtime state, owned by the worker
+  enabled              Boolean       @default(true)
+  status               MonitorStatus @default(PENDING)
+  consecutiveFailures  Int           @default(0)
+  consecutiveSuccesses Int           @default(0)
+  /// The scheduler's cursor. Postgres, not Redis, decides what is due.
+  nextCheckAt          DateTime      @default(now()) @db.Timestamptz(3)
+  lastCheckedAt        DateTime?     @db.Timestamptz(3)
+  lastStatusChangeAt   DateTime?     @db.Timestamptz(3)
+  lastSuccessAt        DateTime?     @db.Timestamptz(3)
+  lastFailureAt        DateTime?     @db.Timestamptz(3)
+  lastResponseTimeMs   Int?
+  lastStatusCode       Int?
+  lastErrorType        CheckErrorType?
+  lastErrorMessage     String?
+
+  isSample    Boolean  @default(false)
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  checks        MonitorCheck[]
+  aggregates    MonitorDailyAggregate[]
+  incidents     IncidentMonitor[]
+  statusPages   StatusPageMonitor[]
+  deliveries    NotificationDelivery[]
+  activity      ActivityEvent[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, status])
+  /// Serves the scheduler's "what is due" claim query.
+  @@index([enabled, nextCheckAt])
+}
+
+/// One row per executed check. Append-only; pruned after CHECK_RETENTION_DAYS.
+model MonitorCheck {
+  id             String      @id @default(uuid(7)) @db.Uuid
+  monitorId      String      @db.Uuid
+  organizationId String      @db.Uuid
+  status         CheckStatus
+  statusCode     Int?
+  /// Time to response headers, across redirects, for the final attempt.
+  responseTimeMs Int?
+  dnsMs          Int?
+  connectMs      Int?
+  tlsMs          Int?
+  ttfbMs         Int?
+  errorType      CheckErrorType?
+  /// Sanitized: no credentials, query strings, or response bodies.
+  errorMessage   String?
+  attempts       Int         @default(1)
+  origin         DataOrigin  @default(LIVE)
+  checkedAt      DateTime    @db.Timestamptz(3)
+
+  monitor      Monitor      @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([monitorId, checkedAt(sort: Desc)])
+  @@index([organizationId, checkedAt(sort: Desc)])
+  /// Retention pruning deletes by age across all tenants.
+  @@index([checkedAt])
+}
+
+/// Per-monitor, per-UTC-day rollup. Outlives raw checks and backs every
+/// chart with a window longer than the raw retention period.
+model MonitorDailyAggregate {
+  monitorId      String     @db.Uuid
+  day            DateTime   @db.Date
+  organizationId String     @db.Uuid
+  totalChecks    Int
+  upChecks       Int
+  degradedChecks Int
+  downChecks     Int
+  avgResponseMs  Int?
+  minResponseMs  Int?
+  maxResponseMs  Int?
+  p50ResponseMs  Int?
+  p95ResponseMs  Int?
+  p99ResponseMs  Int?
+  origin         DataOrigin @default(LIVE)
+  updatedAt      DateTime   @updatedAt @db.Timestamptz(3)
+
+  monitor      Monitor      @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([monitorId, day])
+  @@index([organizationId, day])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Incidents
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Incident {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  organizationId String           @db.Uuid
+  /// Sequential within the organization (INC-1, INC-2, …).
+  number         Int
+  title          String
+  summary        String?
+  status         IncidentStatus   @default(INVESTIGATING)
+  severity       IncidentSeverity @default(MEDIUM)
+  source         IncidentSource   @default(MANUAL)
+  /// Explicit opt-in. Only public incidents can appear on a status page.
+  isPublic       Boolean          @default(false)
+  assigneeId     String?          @db.Uuid
+  createdById    String?          @db.Uuid
+  startedAt      DateTime         @default(now()) @db.Timestamptz(3)
+  acknowledgedAt DateTime?        @db.Timestamptz(3)
+  resolvedAt     DateTime?        @db.Timestamptz(3)
+  isSample       Boolean          @default(false)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignee     User?        @relation("IncidentAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy    User?        @relation("IncidentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  monitors   IncidentMonitor[]
+  updates    IncidentUpdate[]
+  notes      IncidentNote[]
+  analyses   IncidentAnalysis[]
+  deliveries NotificationDelivery[]
+  activity   ActivityEvent[]
+
+  @@unique([organizationId, number])
+  @@index([organizationId, status, startedAt(sort: Desc)])
+  @@index([organizationId, startedAt(sort: Desc)])
+}
+
+model IncidentMonitor {
+  incidentId     String   @db.Uuid
+  monitorId      String   @db.Uuid
+  organizationId String   @db.Uuid
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  incident     Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  monitor      Monitor      @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@id([incidentId, monitorId])
+  @@index([monitorId])
+}
+
+/// The incident timeline. Only rows with kind = UPDATE and isPublic = true are
+/// ever read by the public status page.
+model IncidentUpdate {
+  id             String             @id @default(uuid(7)) @db.Uuid
+  incidentId     String             @db.Uuid
+  organizationId String             @db.Uuid
+  kind           IncidentUpdateKind @default(UPDATE)
+  /// The status the incident moved to with this update, if it changed.
+  status         IncidentStatus?
+  message        String
+  isPublic       Boolean            @default(false)
+  authorId       String?            @db.Uuid
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+
+  incident     Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  author       User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([incidentId, createdAt])
+}
+
+/// Internal collaboration notes. Kept in a separate table from updates so the
+/// public read path has no query that could return one.
+model IncidentNote {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  incidentId     String   @db.Uuid
+  organizationId String   @db.Uuid
+  authorId       String?  @db.Uuid
+  body           String
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @db.Timestamptz(3)
+
+  incident     Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  author       User?        @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([incidentId, createdAt])
+}
+
+/// A stored AI analysis. Advisory only; never mutates monitoring configuration.
+model IncidentAnalysis {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  incidentId     String   @db.Uuid
+  organizationId String   @db.Uuid
+  provider       String
+  model          String
+  content        Json
+  inputTokens    Int?
+  outputTokens   Int?
+  requestedById  String?  @db.Uuid
+  isSample       Boolean  @default(false)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  incident     Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedBy  User?        @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+
+  @@index([incidentId, createdAt(sort: Desc)])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Notifications
+// ─────────────────────────────────────────────────────────────────────────────
+
+model NotificationChannel {
+  id             String                  @id @default(uuid(7)) @db.Uuid
+  organizationId String                  @db.Uuid
+  type           NotificationChannelType
+  name           String
+  /// EMAIL: { recipients: string[] }. WEBHOOK: { url: string }.
+  config         Json
+  /// WEBHOOK only: HMAC-SHA256 signing secret. Shown once, never returned again.
+  signingSecret  String?
+  events         NotificationEvent[]
+  enabled        Boolean                 @default(true)
+  createdById    String?                 @db.Uuid
+  createdAt      DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime                @updatedAt @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?        @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  deliveries   NotificationDelivery[]
+
+  @@index([organizationId])
+}
+
+/// Transactional outbox and delivery log in one. A row is inserted in the same
+/// transaction as the state change that caused it; the worker delivers it.
+model NotificationDelivery {
+  id             String                  @id @default(uuid(7)) @db.Uuid
+  organizationId String                  @db.Uuid
+  channelId      String?                 @db.Uuid
+  /// Set when the delivery targets a member's personal email preference.
+  userId         String?                 @db.Uuid
+  channelType    NotificationChannelType
+  /// Email address or webhook URL. Masked before leaving the API.
+  recipient      String
+  event          NotificationEvent
+  /// Idempotency key: the same event is never delivered twice to a recipient.
+  dedupeKey      String
+  subject        String
+  payload        Json
+  status         DeliveryStatus          @default(PENDING)
+  attempts       Int                     @default(0)
+  lastError      String?
+  incidentId     String?                 @db.Uuid
+  monitorId      String?                 @db.Uuid
+  createdAt      DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime                @updatedAt @db.Timestamptz(3)
+  sentAt         DateTime?               @db.Timestamptz(3)
+
+  organization Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channel      NotificationChannel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+  user         User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  incident     Incident?            @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+  monitor      Monitor?             @relation(fields: [monitorId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, dedupeKey])
+  @@index([organizationId, createdAt(sort: Desc)])
+  /// Serves the outbox poller.
+  @@index([status, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public status pages
+// ─────────────────────────────────────────────────────────────────────────────
+
+model StatusPage {
+  id                  String          @id @default(uuid(7)) @db.Uuid
+  organizationId      String          @db.Uuid
+  /// Globally unique: it is the public URL.
+  slug                String          @unique
+  name                String
+  description         String?
+  published           Boolean         @default(false)
+  accentColor         String          @default("#6366f1")
+  theme               StatusPageTheme @default(AUTO)
+  uptimeDays          Int             @default(90)
+  showIncidentHistory Boolean         @default(true)
+  supportUrl          String?
+  createdAt           DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime        @updatedAt @db.Timestamptz(3)
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitors     StatusPageMonitor[]
+
+  @@index([organizationId])
+}
+
+model StatusPageMonitor {
+  statusPageId String  @db.Uuid
+  monitorId    String  @db.Uuid
+  /// Public alias. The private monitor name and URL are never published.
+  displayName  String
+  description  String?
+  sortOrder    Int     @default(0)
+
+  statusPage StatusPage @relation(fields: [statusPageId], references: [id], onDelete: Cascade)
+  monitor    Monitor    @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@id([statusPageId, monitorId])
+  @@index([monitorId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Audit and activity
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Who did what. Security-relevant, append-only, never contains secrets.
+model AuditLog {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  organizationId String         @db.Uuid
+  actorType      AuditActorType @default(USER)
+  actorId        String?        @db.Uuid
+  /// Snapshot of the actor's email so the trail survives account deletion.
+  actorLabel     String
+  /// Dotted verb, e.g. "monitor.created", "member.role_changed".
+  action         String
+  targetType     String?
+  targetId       String?
+  targetLabel    String?
+  metadata       Json?
+  ipAddress      String?
+  userAgent      String?
+  isSample       Boolean        @default(false)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  actor        User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([organizationId, action, createdAt(sort: Desc)])
+}
+
+/// What happened to the systems. Feeds the dashboard and the activity inbox.
+model ActivityEvent {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  organizationId String        @db.Uuid
+  type           ActivityType
+  level          ActivityLevel @default(INFO)
+  title          String
+  description    String?
+  monitorId      String?       @db.Uuid
+  incidentId     String?       @db.Uuid
+  isSample       Boolean       @default(false)
+  occurredAt     DateTime      @default(now()) @db.Timestamptz(3)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  monitor      Monitor?     @relation(fields: [monitorId], references: [id], onDelete: SetNull)
+  incident     Incident?    @relation(fields: [incidentId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, occurredAt(sort: Desc)])
+  @@index([monitorId, occurredAt(sort: Desc)])
+}
