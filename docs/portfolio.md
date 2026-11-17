@@ -52,13 +52,12 @@ The parts I would point a reviewer to:
 >
 > Stack: Next.js, TypeScript, PostgreSQL, Prisma, Redis, BullMQ.
 >
-> Repository: <link>
+> Repository: https://github.com/nuhanhabib/pulseops
 >
 > I would value feedback, especially on the architecture notes and the security write-up.
 
 ## Before publishing
 
-- Replace `<link>` with the repository URL.
 - Enable private vulnerability reporting in the repository's security settings, since `SECURITY.md` points to it.
 - Build and run the Docker Compose stack once and fix anything that surfaces; then remove the "unverified" notes from the README and `docs/deployment.md`.
 - Re-capture screenshots if the UI changes (`docs/screenshots`).

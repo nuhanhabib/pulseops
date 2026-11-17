@@ -4,6 +4,15 @@
   "private": true,
   "description": "Intelligent infrastructure monitoring and incident management platform.",
   "license": "MIT",
+  "author": "Nuhan Habib",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nuhanhabib/pulseops.git"
+  },
+  "homepage": "https://github.com/nuhanhabib/pulseops#readme",
+  "bugs": {
+    "url": "https://github.com/nuhanhabib/pulseops/issues"
+  },
   "engines": {
     "node": ">=22.12.0"
   },

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for taking a look. This is a small project, so the process is light.
+PulseOps is created and maintained by [Nuhan Habib](https://github.com/nuhanhabib). Thanks for taking a look. This is a small project, so the process is light.
 
 ## Getting set up
 

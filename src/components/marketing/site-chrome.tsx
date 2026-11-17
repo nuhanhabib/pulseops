@@ -60,7 +60,8 @@ export function SiteFooter() {
         ))}
       </div>
       <div className="border-t border-border">
-        <p className="mx-auto max-w-6xl px-5 py-5 text-xs text-muted">{APP_NAME} is an open-source project released under the MIT License. It is a portfolio and reference implementation, not a hosted commercial service.</p>
+        <p className="mx-auto max-w-6xl px-5 py-5 text-xs text-muted">{APP_NAME} is an open-source project by{" "}
+          <a href="https://github.com/nuhanhabib" className="text-text-2 underline-offset-4 hover:text-text hover:underline">Nuhan Habib</a>, released under the MIT License. It is a portfolio and reference implementation, not a hosted commercial service.</p>
       </div>
     </footer>
   );

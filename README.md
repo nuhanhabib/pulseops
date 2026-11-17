@@ -2,6 +2,8 @@
 
 **Know before it breaks. Resolve before it matters.**
 
+Designed and built by **[Nuhan Habib](https://github.com/nuhanhabib)**.
+
 PulseOps is a multi-tenant uptime monitoring and incident management platform. It checks your websites and APIs, turns sustained failures into incidents your team can run, notifies the right people once, and publishes a status page you control.
 
 It is a complete, self-hostable application: a Next.js web app, a dedicated monitoring worker, PostgreSQL, and Redis.
@@ -227,6 +229,12 @@ Details, threat model, and known limits: [docs/security.md](docs/security.md). T
 - Email verification, password reset, and TOTP
 - Hourly rollups and partitioning for `MonitorCheck`
 
+## Author
+
+**Nuhan Habib** designed and built PulseOps: architecture, backend, monitoring worker, interface, tests, and documentation.
+
+- GitHub: [@nuhanhabib](https://github.com/nuhanhabib)
+
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) © 2026 Nuhan Habib
