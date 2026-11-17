@@ -2,13 +2,11 @@
 
 **Know before it breaks. Resolve before it matters.**
 
+PulseOps is a self-hostable platform for uptime monitoring and incident management. It checks your websites and APIs around the clock, turns sustained failures into incidents your team can work through together, notifies the right people once, and keeps customers informed with a public status page.
+
 Designed and built by **[Nuhan Habib](https://github.com/nuhanhabib)**.
 
-PulseOps is a multi-tenant uptime monitoring and incident management platform. It checks your websites and APIs, turns sustained failures into incidents your team can run, notifies the right people once, and publishes a status page you control.
-
-It is a complete, self-hostable application: a Next.js web app, a dedicated monitoring worker, PostgreSQL, and Redis.
-
-![Dashboard](docs/screenshots/dashboard.png)
+![PulseOps dashboard](docs/screenshots/dashboard.png)
 
 | | |
 |---|---|
@@ -16,218 +14,305 @@ It is a complete, self-hostable application: a Next.js web app, a dedicated moni
 | ![Analytics](docs/screenshots/analytics.png) | ![Public status page](docs/screenshots/status-page.png) |
 | ![Light theme](docs/screenshots/monitors-light.png) | ![Marketing site](docs/screenshots/home.png) |
 
-Screenshots show the seeded demo workspace, which is sample data and labelled as such in the UI.
+<sub>Screenshots show the built-in demo workspace. Its data is generated sample data and is labelled as such in the app.</sub>
 
-## Features
+## Contents
 
-**Monitoring**
-- Real HTTP checks (GET, HEAD, POST, OPTIONS) at intervals from 30 seconds, run by a separate worker process
-- Timeouts, in-check retries, expected status codes, redirect handling, and DNS / connect / TLS / first-byte timings
-- Failure and recovery thresholds, plus a degraded state for slow responses
-- SSRF protection: private, loopback, link-local, and metadata addresses are refused, with DNS-pinned connections and per-redirect re-validation
-- A test button that runs one real check before you save
+- [What it does](#what-it-does)
+- [Getting started](#getting-started)
+- [Configuration](#configuration)
+- [How it works](#how-it-works)
+- [Tech stack](#tech-stack)
+- [Testing](#testing)
+- [Deployment](#deployment)
+- [Security](#security)
+- [Documentation](#documentation)
+- [Known limitations](#known-limitations)
+- [Roadmap](#roadmap)
+- [Author](#author)
+- [License](#license)
 
-**Incidents**
-- Opened automatically when a monitor crosses its failure threshold, with no duplicates while it stays down; resolved automatically on sustained recovery (optional)
-- Manual incidents, four statuses, four severities, owner assignment, linked monitors
-- A timeline of updates, internal notes kept in a separate table, and field-level activity history
+## What it does
 
-**Visibility**
-- Live dashboard and per-monitor pages, updated over Server-Sent Events
-- Analytics across 24 hours to 90 days: uptime, latency percentiles, incident frequency, time to resolve, worst performers
-- Charts with documented formulas, a table view for each, and no dual axes
+### Monitoring
+- Real HTTP checks (GET, HEAD, POST, OPTIONS) from 30-second intervals, run by a dedicated worker process
+- Timeouts, retries, expected status codes, and redirect handling
+- DNS, connect, TLS, and time-to-first-byte timings on every check
+- Failure and recovery thresholds, so a single blip never pages anyone
+- A "degraded" state for endpoints that answer correctly but slowly
+- A **Run test** button that performs one real check before you save
+- Built-in protection against server-side request forgery (SSRF): private, internal, and cloud-metadata addresses are refused
 
-**Communication**
-- Public status pages with public component names, uptime history, and incident notices
-- Email (SMTP) and HMAC-signed webhook notifications through a transactional outbox, with retries, deduplication, a per-destination ceiling, and a delivery log
+### Incidents
+- Opened automatically when a monitor stays down, with no duplicates while it remains down
+- Resolved automatically when the service recovers (optional)
+- Declared manually, with four statuses, four severities, an owner, and linked monitors
+- A shared timeline of updates, plus internal notes that are never published
 
-**Platform**
-- Organizations with owner / admin / member / viewer roles, single-use invitations, and server-enforced tenant isolation
-- Revocable server-side sessions, argon2id passwords, CSRF checks, rate limiting, an append-only audit log
-- Optional AI incident assistant (Anthropic), off by default, working from sanitized aggregates
-- Dark and light themes, command palette, keyboard shortcuts, responsive down to a phone
+### Visibility
+- A live dashboard and per-monitor pages that update without refreshing
+- Analytics from 24 hours to 90 days: uptime, response-time percentiles, incident frequency, and time to resolve
+- Every chart can be viewed as a table, and every formula is documented
 
-## Architecture
+### Communication
+- Public status pages that show only the components and updates you choose
+- Email (SMTP) and signed webhook notifications, with retries, deduplication, and a delivery log
 
-```mermaid
-flowchart LR
-  B[Browser] -- "pages, REST /api/v1" --> W[Web app<br/>Next.js]
-  W -- "SSE per organization" --> B
-  W --> PG[(PostgreSQL<br/>source of truth)]
-  K[Worker] -- "claims due monitors,<br/>stores results" --> PG
-  K -- "BullMQ jobs, events" --> R[(Redis)]
-  R -- "pub/sub" --> W
-  K -- "HTTP checks via SSRF guard" --> T[Monitored endpoints]
-  K -- "SMTP / webhooks" --> N[Notification targets]
-```
+### Teams and security
+- Organizations with Owner, Admin, Member, and Viewer roles, and single-use invitation links
+- Strict separation between organizations, enforced on the server
+- Revocable sessions, argon2id password hashing, CSRF protection, rate limiting, and an audit log
+- An optional AI incident assistant (Anthropic), off by default
 
-- **Postgres is the source of truth.** Each monitor's schedule is a `nextCheckAt` column; workers claim due rows with `FOR UPDATE SKIP LOCKED`. Redis only executes work, so it holds nothing durable.
-- **The worker is a separate, long-running process.** It is not a serverless cron job.
-- **Route handler → service → Prisma.** Services take a tenant context that can only be obtained by proving membership, and scope every query by it.
-- **Real-time events are invalidation signals.** Data always travels through the authorized REST API.
+### Experience
+- Dark and light themes
+- Command palette (`Ctrl+K` / `⌘K`) and keyboard shortcuts
+- Responsive layouts from desktop down to phone
 
-More in [docs/architecture.md](docs/architecture.md) and the [decision records](docs/decisions).
+## Getting started
 
-## Tech stack
+You can run PulseOps in two ways:
 
-| Area | Choice |
-|---|---|
-| Framework | Next.js 16 (App Router, Cache Components), React 19, TypeScript (strict) |
-| UI | Tailwind CSS 4, Radix primitives in the shadcn/ui style, Lucide, Recharts, cmdk, Sonner |
-| Data | PostgreSQL 16, Prisma 7 (`@prisma/adapter-pg`) |
-| Jobs and real time | Redis 7, BullMQ 6, Server-Sent Events |
-| Client state | TanStack Query, React Hook Form, Zod 4 |
-| Auth | First-party server-side sessions, argon2id |
-| AI (optional) | Anthropic SDK behind a provider interface |
-| Tests | Vitest, React Testing Library, Playwright |
-| Ops | Docker, Docker Compose, GitHub Actions |
+| | Best for | You need |
+|---|---|---|
+| **[Option 1: Docker](#option-1-docker)** | The quickest start; everything runs with one command | Docker Desktop |
+| **[Option 2: Node.js, PostgreSQL and Redis](#option-2-nodejs-postgresql-and-redis)** | Running without Docker, or developing the code | Node.js 22, PostgreSQL 16, Redis 7 |
 
-Two departures from the original brief, both deliberate: authentication is first-party rather than Auth.js ([ADR 1](docs/decisions/0001-first-party-sessions.md)), and Framer Motion is not used because CSS transitions covered every animation the interface needs.
+Both options load a **demo workspace**, so there is something to explore straight away.
 
-## Quickstart with Docker
+### Option 1: Docker
 
 ```bash
+git clone https://github.com/nuhanhabib/pulseops.git
+cd pulseops
 cp .env.example .env
 docker compose up --build
 ```
 
-Then open <http://localhost:3000/sign-in>.
+This starts PostgreSQL, Redis, the web app, the monitoring worker, a local mail inbox for viewing notification emails, and a small simulator of demo services. The database is set up and the demo workspace is loaded automatically.
+
+When it's running, open <http://localhost:3000/sign-in>. Notification emails appear at <http://localhost:8025>.
+
+> **Note:** the Docker setup was prepared and its configuration checked, but it has not yet been run end to end. If you hit a problem, Option 2 is the fully tested path. Please [open an issue](https://github.com/nuhanhabib/pulseops/issues) so it can be fixed.
+
+### Option 2: Node.js, PostgreSQL and Redis
+
+Use this to run PulseOps directly on your computer without Docker.
+
+**1. Install the requirements**
+
+- [Node.js](https://nodejs.org/) 22.12 or later
+- [PostgreSQL](https://www.postgresql.org/download/) 16 or later
+- [Redis](https://redis.io/docs/latest/operate/oss_and_stack/install/) 7 or later. On Windows, use [Memurai](https://www.memurai.com/) (Redis-compatible) or run Redis through WSL.
+
+Make sure PostgreSQL and Redis are running before you continue.
+
+**2. Get the code and install dependencies**
+
+```bash
+git clone https://github.com/nuhanhabib/pulseops.git
+cd pulseops
+npm install
+```
+
+**3. Create the database**
+
+Create a database user called `pulseops` with the password `pulseops`, then create two databases owned by it: `pulseops` for the app and `pulseops_test` for the tests.
+
+```bash
+createuser --pwprompt pulseops
+createdb -O pulseops pulseops
+createdb -O pulseops pulseops_test
+```
+
+If you prefer a graphical tool such as pgAdmin, create the same user and databases there.
+
+**4. Configure the app**
+
+```bash
+cp .env.example .env
+```
+
+On Windows PowerShell, use `Copy-Item .env.example .env`.
+
+The defaults work if PostgreSQL and Redis run on your computer with the user above. Otherwise, edit `DATABASE_URL` and `REDIS_URL` in `.env`.
+
+**5. Set up the database and load the demo**
+
+```bash
+npm run db:deploy
+npm run db:seed
+```
+
+**6. Start PulseOps**
+
+```bash
+npm run dev
+```
+
+This starts three processes together: the web app, the monitoring worker, and the demo service simulator. Open <http://localhost:3000/sign-in>.
+
+### Demo sign-in
 
 | | |
 |---|---|
 | Email | `demo@northwind.example` |
 | Password | `pulseops-demo-2026` |
-| Other roles | `priya@` (admin), `marcus@` (member), `sofia@` (viewer), same password |
-| Mail catcher | <http://localhost:8025> |
-| Status page | <http://localhost:3000/status/northwind> |
+| Other roles | `priya@northwind.example` (Admin), `marcus@northwind.example` (Member), `sofia@northwind.example` (Viewer), same password |
+| Public status page | <http://localhost:3000/status/northwind> |
 
-Compose starts Postgres, Redis, the web app, the worker, a mail catcher, and a simulator of ten fictional services for the demo monitors to check. Migrations and the demo seed run automatically.
-
-> The Compose stack was written and syntax-checked but could not be run in the environment this project was built in (no Docker daemon). The manual setup below is what was actually exercised. See [Known limitations](#known-limitations).
+You can also create your own account at <http://localhost:3000/sign-up>.
 
 ### Watch an outage happen
 
-```bash
-npm run demo:ctl -- break checkout-api 3   # fail for 3 minutes
-npm run demo:ctl -- slow search-api 5      # respond slowly for 5 minutes
-npm run demo:ctl -- status
-```
-
-Within about 90 seconds the monitor goes down, an incident opens, notifications are queued, and the dashboard updates without a reload. When the simulator heals, the monitor recovers and the incident resolves itself.
-
-## Manual setup
-
-Requires Node 22.12+, PostgreSQL 16, and Redis 7.
+With PulseOps running, open a second terminal in the project folder:
 
 ```bash
-npm install                      # also generates the Prisma client
-cp .env.example .env             # then edit DATABASE_URL / REDIS_URL if needed
-
-createuser --pwprompt pulseops   # password: pulseops
-createdb -O pulseops pulseops
-createdb -O pulseops pulseops_test
-
-npm run db:deploy                # apply migrations
-npm run db:seed                  # load the demo workspace (optional)
-npm run dev                      # web + worker + demo target simulator
+npm run demo:ctl -- break checkout-api 3   # make a service fail for 3 minutes
+npm run demo:ctl -- slow search-api 5      # make a service slow for 5 minutes
+npm run demo:ctl -- status                 # see the state of every demo service
 ```
 
-`npm run dev` runs three processes. To run them separately: `npm run dev:web`, `npm run dev:worker`, `npm run demo:targets`.
+Within about 90 seconds the monitor goes down, an incident opens, notifications are sent, and the dashboard updates on its own. When the service comes back, the monitor recovers and the incident resolves itself.
 
-## Environment variables
+### Troubleshooting
 
-All variables are documented in [.env.example](.env.example) and validated at startup; an invalid value stops the process with a message naming it.
+| Problem | Fix |
+|---|---|
+| "A required service (Redis) is not reachable" | Redis is not running. Start it, then try again. |
+| Can't connect to the database | Check PostgreSQL is running and `DATABASE_URL` in `.env` is correct. |
+| "Too many requests. Try again in …" | The sign-in or sign-up limit was reached. Wait for the time shown. |
+| Port 3000 is already in use | Stop the other app using it, or run `npm run dev:web -- -p 3001`. |
 
-| Variable | Default | |
+## Configuration
+
+Every setting is listed and explained in [`.env.example`](.env.example). Settings are checked when the app starts; if one is wrong, PulseOps stops and tells you which.
+
+| Variable | Default | Purpose |
 |---|---|---|
 | `DATABASE_URL` | required | PostgreSQL connection string |
-| `REDIS_URL` | `redis://localhost:6379` | |
-| `APP_URL` | `http://localhost:3000` | Public origin; drives cookie security, CSRF, and email links |
-| `ALLOW_SIGNUP` | `true` | `false` = invitation only |
-| `MONITOR_ALLOWED_PRIVATE_HOSTS` | empty | Hosts exempt from the SSRF block. Demo and internal monitoring only |
-| `CHECK_RETENTION_DAYS` | `30` | Raw check retention |
-| `WORKER_CONCURRENCY` | `20` | Parallel checks per worker |
-| `SMTP_URL` | unset | Without it, emails are recorded as "not sent" |
-| `AI_PROVIDER` / `ANTHROPIC_API_KEY` | `none` / unset | Enables the AI assistant |
+| `REDIS_URL` | `redis://localhost:6379` | Redis connection string |
+| `APP_URL` | `http://localhost:3000` | The address people use to reach the app |
+| `ALLOW_SIGNUP` | `true` | Set to `false` to allow sign-up by invitation only |
+| `SMTP_URL` | not set | Mail server for notification emails. Without it, emails are logged but not sent. |
+| `CHECK_RETENTION_DAYS` | `30` | How long individual check results are kept |
+| `WORKER_CONCURRENCY` | `20` | How many checks one worker runs at once |
+| `MONITOR_ALLOWED_PRIVATE_HOSTS` | empty | Private hosts monitors may reach. For the demo and internal monitoring only. |
+| `AI_PROVIDER`, `ANTHROPIC_API_KEY` | `none` | Turn on the optional AI assistant |
 
-## Database
+## How it works
 
-```bash
-npm run db:migrate   # development: create and apply a migration
-npm run db:deploy    # production: apply pending migrations
-npm run db:seed      # demo workspace; idempotent, refuses to run in production
-npm run db:reset     # drop, migrate, seed
+```mermaid
+flowchart LR
+  B[Browser] -- "pages, REST API" --> W[Web app<br/>Next.js]
+  W -- "live updates (SSE)" --> B
+  W --> PG[(PostgreSQL<br/>source of truth)]
+  K[Monitoring worker] -- "finds due monitors,<br/>saves results" --> PG
+  K -- "job queue, events" --> R[(Redis)]
+  R -- "events" --> W
+  K -- "HTTP checks" --> T[Your websites and APIs]
+  K -- "email / webhooks" --> N[Your team]
 ```
 
-Schema notes are in [docs/database.md](docs/database.md).
+- **The web app** serves the interface, the REST API, and live updates.
+- **The worker** is a separate, always-running process. It runs the checks, decides when something is down or has recovered, opens and resolves incidents, and sends notifications.
+- **PostgreSQL** holds everything permanent, including each monitor's schedule.
+- **Redis** runs the job queue and delivers live updates. It holds nothing that would be lost if it restarted.
 
-## Tests
+The design decisions behind this are written up in [docs/architecture.md](docs/architecture.md) and the [decision records](docs/decisions).
+
+## Tech stack
+
+| Area | Technology |
+|---|---|
+| Framework | Next.js 16, React 19, TypeScript |
+| Interface | Tailwind CSS 4, Radix UI, Lucide icons, Recharts |
+| Database | PostgreSQL 16, Prisma 7 |
+| Jobs and live updates | Redis 7, BullMQ, Server-Sent Events |
+| Forms and data fetching | React Hook Form, Zod, TanStack Query |
+| Authentication | Server-side sessions, argon2id |
+| AI (optional) | Anthropic SDK |
+| Testing | Vitest, React Testing Library, Playwright |
+| Tooling | Docker, Docker Compose, GitHub Actions |
+
+## Testing
 
 ```bash
-npm run lint
-npm run typecheck
-npm test                 # 78 unit + 30 integration + 13 component tests
-npm run build && npm run db:seed && npm run test:e2e   # 7 end-to-end tests
+npm run lint        # code style
+npm run typecheck   # TypeScript
+npm test            # 121 unit, integration, and component tests
 ```
 
-Integration tests use a real Postgres database (`pulseops_test`) and Redis database 9. End-to-end tests run the production build, the worker, and the simulator together.
+End-to-end tests run the full application in a real browser:
 
-What is covered: authentication and session revocation, sign-in lockout, CSRF, tenant isolation by slug and by id, role enforcement, monitor validation, the SSRF guard (URL policy, address classification, DNS rebinding, redirects), the HTTP checker against a live local server, the outage state machine, incident deduplication under concurrency, recovery and auto-resolution, notification idempotency, uptime maths, scheduler claiming, and status-page data leakage.
+```bash
+npm run build
+npm run db:seed
+npm run test:e2e    # 7 end-to-end tests
+```
+
+Integration tests need PostgreSQL and Redis running, and use the separate `pulseops_test` database.
+
+The tests cover sign-in and sessions, permissions for each role, separation between organizations, monitor validation, SSRF protection, real HTTP checks, outage detection and recovery, duplicate-free incidents, notification delivery rules, uptime calculations, and that public status pages never reveal private information.
 
 ## Deployment
 
-Run the web app, at least one worker, PostgreSQL 16, and Redis 7. Apply migrations before starting new code. The worker must run continuously; a platform that only runs request-scoped functions can host the web app but not the worker.
+PulseOps needs four things running: the web app, at least one worker, PostgreSQL, and Redis.
 
-Full guide and production checklist: [docs/deployment.md](docs/deployment.md).
+The worker must run continuously. Hosting that only runs short, request-based functions can host the web app but not the worker.
+
+See [docs/deployment.md](docs/deployment.md) for the full guide and a production checklist.
 
 ## Security
 
-- Passwords: argon2id. Sessions: opaque tokens, hashed at rest, revocable.
-- Every API handler authenticates, resolves membership, and checks a permission on the server. Foreign records return 404.
-- Outbound requests to user-supplied URLs go through a three-layer SSRF guard. Its limits are documented, not hidden.
-- Public status pages are produced by one allowlisted query, with a test asserting private fields never appear.
-- No secrets are committed. `.env` is git-ignored.
+- Passwords are hashed with argon2id; sessions can be revoked at any time.
+- Every request is checked on the server for who is asking and what their role allows.
+- One organization can never see another organization's data.
+- URLs that users ask PulseOps to check are screened so they cannot reach private networks.
+- Public status pages show only what has been explicitly published.
+- No secrets are stored in the repository.
 
-Details, threat model, and known limits: [docs/security.md](docs/security.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
+The details, including known limits, are in [docs/security.md](docs/security.md). To report a vulnerability, please follow [SECURITY.md](SECURITY.md).
 
 ## Documentation
 
-| | |
+| Document | What's inside |
 |---|---|
-| [Architecture](docs/architecture.md) | Processes, scheduling, the result pipeline, real time |
-| [Database](docs/database.md) | Tables, indexes, deletion behaviour |
-| [API reference](docs/api.md) | Conventions, endpoints, examples, webhook format |
-| [Metrics](docs/metrics.md) | How every number is calculated |
-| [Security](docs/security.md) | Controls and their limits |
-| [Deployment](docs/deployment.md) | Running it in production |
-| [Design system](docs/design-system.md) | Tokens, components, chart rules |
-| [Decisions](docs/decisions) | Why it is built this way |
+| [Architecture](docs/architecture.md) | How the pieces fit together |
+| [Database](docs/database.md) | Tables, indexes, and data rules |
+| [API reference](docs/api.md) | Every endpoint, with examples |
+| [Metrics](docs/metrics.md) | How each number is calculated |
+| [Security](docs/security.md) | Protections and their limits |
+| [Deployment](docs/deployment.md) | Running PulseOps in production |
+| [Design system](docs/design-system.md) | Colours, components, and chart rules |
+| [Decisions](docs/decisions) | Why it is built the way it is |
 
 ## Known limitations
 
-- **Docker images and Compose are unverified.** They were written carefully and `docker compose config` passes, but they have not been built or run. Expect to fix small issues on first use.
-- **Checks run from one location.** There is no multi-region probing or consensus, so a network problem near the worker looks like an outage.
-- **Monitors cannot send custom headers or request bodies**, so endpoints that need authentication cannot be checked yet.
-- **Uptime is check-based.** An outage shorter than the check interval can be missed.
-- **Long-window percentiles are approximate** (weighted from daily rollups). Counts, uptime, and means are exact.
-- **No email verification, password reset, MFA, or SSO.** Invitations are delivered as a link the inviter shares; they are not emailed.
-- **No Slack, Discord, SMS, or paging integrations.** Webhooks are the integration point.
-- **No API keys.** The REST API is authenticated by session cookie only.
-- **No billing.** The pricing page is explicitly illustrative.
-- **Publishing an incident publishes its title as written**, and automatic incidents are titled after the monitor's private name.
-- **The AI assistant has not been run against the live API** from this codebase (no key was available). It typechecks against the SDK and its surrounding logic is tested; the disabled state is verified.
-- The CSP allows inline scripts ([ADR 6](docs/decisions/0006-content-security-policy.md)).
+- The Docker setup has not yet been run end to end.
+- Checks run from a single location, so a network problem near the worker can look like an outage.
+- Monitors cannot send custom headers or request bodies yet.
+- Outages shorter than the check interval can be missed.
+- There is no email verification, password reset, two-factor authentication, or single sign-on yet.
+- Invitations are shared as a link rather than emailed.
+- Slack, Discord, SMS, and paging integrations are not built in; webhooks can connect to them.
+- The REST API uses session sign-in only; there are no API keys yet.
+- The AI assistant has not been tested against the live AI service.
+- The pricing page is illustrative; there is no billing.
 
 ## Roadmap
 
-- Multi-region checks with quorum before declaring an outage
-- Request headers and bodies, with encrypted secret storage
-- Keyword and JSON assertions; TLS certificate expiry monitoring
-- Scoped API keys and a published OpenAPI document
-- Maintenance windows and scheduled status-page notices
-- Slack and PagerDuty channels; on-call schedules and escalation
-- Email verification, password reset, and TOTP
-- Hourly rollups and partitioning for `MonitorCheck`
+- Checks from multiple regions
+- Custom request headers and bodies
+- Keyword and JSON response checks, and TLS certificate expiry alerts
+- API keys and an OpenAPI specification
+- Maintenance windows on status pages
+- Slack and PagerDuty integrations, on-call schedules
+- Email verification, password reset, and two-factor authentication
+
+## Contributing
+
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 ## Author
 
